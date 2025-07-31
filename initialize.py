@@ -19,7 +19,8 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import Chroma
 import constants as ct
-
+import pandas as pd
+from langchain.docstore.document import Document
 
 ############################################################
 # 設定関連
@@ -123,8 +124,8 @@ def initialize_retriever():
     
     # チャンク分割用のオブジェクトを作成
     text_splitter = CharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=50,
+        chunk_size=ct.CHUNK_SIZE,
+        chunk_overlap=ct.CHUNK_OVERLAP,
         separator="\n"
     )
 
@@ -135,7 +136,8 @@ def initialize_retriever():
     db = Chroma.from_documents(splitted_docs, embedding=embeddings)
 
     # ベクターストアを検索するRetrieverの作成
-    st.session_state.retriever = db.as_retriever(search_kwargs={"k": 3})
+    st.session_state.retriever = db.as_retriever(search_kwargs={"k": ct.NUM_RETRIEVED_DOCS})
+
 
 
 def initialize_session_state():
@@ -215,10 +217,36 @@ def file_load(path, docs_all):
     # 想定していたファイル形式の場合のみ読み込む
     if file_extension in ct.SUPPORTED_EXTENSIONS:
         # ファイルの拡張子に合ったdata loaderを使ってデータ読み込み
-        loader = ct.SUPPORTED_EXTENSIONS[file_extension](path)
-        docs = loader.load()
+        if file_name == "社員名簿.csv":
+            docs = employee_csv_to_documents(path)
+        else:
+            # docxファイルの場合、langchainのDocx2txtLoaderを使う
+            loader = ct.SUPPORTED_EXTENSIONS[file_extension](path)
+            docs = loader.load()
+
         docs_all.extend(docs)
 
+
+
+def employee_csv_to_documents(csv_path: str) -> Document:
+    df = pd.read_csv(csv_path)
+    df.fillna("", inplace=True)
+
+    documents = []
+
+    for _, row in df.iterrows():
+        text = f"""氏名: {row['氏名（フルネーム）']}（{row['年齢']}歳・{row['性別']}）
+入社日: {row['入社日']} / 従業員区分: {row['従業員区分']} / 部署: {row['部署']} / 役職: {row['役職']}
+スキル: {row['スキルセット']}
+資格: {row['保有資格']}
+学歴: {row['大学名']} {row['学部・学科']}（卒業年月日: {row['卒業年月日']}）
+メールアドレス: {row['メールアドレス']}"""
+
+        documents.append(Document(page_content=text, metadata={
+            "部署": row['部署'],
+            "source": csv_path
+        }))
+    return documents
 
 def adjust_string(s):
     """
